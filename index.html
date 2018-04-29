@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="css/bootstrap.min.css">
+
+    <title>Calculation</title>
+    <style>
+        #list .list-group li {
+            cursor: pointer;
+        }
+        .disable-select {
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+        #tableBox .table tbody th {
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+<div class="container">
+    <h1 class="mt-3 h5">
+        Mai Calculator
+        <small class="text-muted text-sm-right">developed on google chrome</small>
+    </h1>
+    <div class="card my-3" id="listBox">
+        <div class="card-header">
+            List
+            <button class="btn ml-3 btn-primary btn-sm button-add">add</button>
+            <button class="btn btn-light btn-sm button-export">export</button>
+            <button class="btn btn-light btn-sm button-import">import</button>
+            <button class="btn btn-light btn-sm button-clear">clear</button>
+            <!--<div class="btn-group float-right">-->
+                <!--<button class="btn btn-light btn-sm dropdown-toggle" type="button" data-toggle="dropdown">-->
+                    <!--more-->
+                <!--</button>-->
+                <!--<div class="dropdown-menu dropdown-menu-right">-->
+                    <!--<a class="dropdown-item" href="#">Export</a>-->
+                    <!--<a class="dropdown-item" href="#">Import</a>-->
+                <!--</div>-->
+            <!--</div>-->
+        </div>
+        <div class="card-body">
+            <div id="list">
+                <ul class="list-group disable-select">
+                    <!--<li class="list-group-item list-group-item-danger">记账 32842.47</li>-->
+                    <!--<li class="list-group-item">实际 32842</li>-->
+                    <!--<li class="list-group-item">其他 3200</li>-->
+                </ul>
+            </div>
+            <div id="listResult">
+                Result: 0
+            </div>
+        </div>
+    </div>
+
+    <div id="tableBox" style="display: none">
+        <h5>
+            <span class="name"></span>
+            <button class="btn btn-outline-secondary btn-sm button-add">add</button>
+        </h5>
+        <table class="table table-bordered table-hover table-sm">
+            <tbody>
+            <!--<tr>-->
+                <!--<th>上次结算 [22020.12]</th>-->
+                <!--<td>22020.12</td>-->
+            <!--</tr>-->
+            <!--<tr>-->
+                <!--<th>收入 [10200]</th>-->
+                <!--<td>10200</td>-->
+            <!--</tr>-->
+            <!--<tr>-->
+                <!--<th>支出 [-1200]</th>-->
+                <!--<td>-1200</td>-->
+            <!--</tr>-->
+            <!--<tr>-->
+                <!--<th>支付宝利息收入 [1.3*8+1.5]</th>-->
+                <!--<td>22.35</td>-->
+            <!--</tr>-->
+            </tbody>
+            <caption>
+                <!--Total: 32842.47-->
+            </caption>
+        </table>
+    </div>
+    <input type="file" id="importFile" style="display: none">
+</div>
+
+<!--<script src="js/jquery-3.3.1.min.js"></script>-->
+<script src="js/zepto.min.js"></script>
+<script src="js/touch.js"></script>
+<script>
+let App = function() {
+    let objects = {};
+    let list = [];
+    let data = {};
+    let scope = null;
+    let reader = new FileReader();
+    let cacheKey = "mai_calculator_cache";
+
+    let init = function() {
+        objects.$listBox = $("#listBox");
+        objects.$list = $("#list");
+        objects.$listGroup = $("#list .list-group");
+        objects.$listResult = $("#listResult");
+        objects.$tableBox = $("#tableBox");
+        objects.$table = $("#tableBox .table");
+        objects.$file = $("#importFile");
+
+        objects.$listBox.on("click", ".button-add", function() {
+            let name = prompt("add a list.");
+            if (name) {
+                let key = App.uniqid();
+                App.add(key, name);
+            }
+        });
+
+        objects.$listBox.on("click", ".button-export", function() {
+            App.export();
+        });
+
+        objects.$listBox.on("click", ".button-clear", function() {
+            let sure = confirm("sure clear?");
+            if (sure) {
+                App.clear();
+            }
+        });
+
+        objects.$listBox.on("click", ".button-import", function() {
+            objects.$file.trigger("click");
+        });
+
+        objects.$tableBox.on("click", ".button-add", function() {
+            let cmd = prompt("add a command. e.g. 'apple   2*5'");
+            if (cmd) {
+                let result = parseCommand(cmd);
+                if (result.length) {
+                    data[scope].items.push(result);
+                    App.render();
+                }
+            }
+        });
+
+        objects.$file.on("change", function() {
+            if (this.files[0]) {
+                reader.readAsText(this.files[0]);
+            }
+        });
+
+        reader.onload = function(e) {
+            let content = e.target.result;
+            if (content) {
+                try {
+                    let result = JSON.parse(content);
+                    if (result.length === 2) {
+                        App.load(result);
+                        return true;
+                    }
+                } catch (e) {
+                    console.log(e);
+                }
+            }
+            alert("file import failed");
+        };
+
+        objects.$listGroup.on("click", "li", function() {
+            scope = this.id;
+            App.render();
+            return false;
+        });
+
+        objects.$listGroup.on("longTap dblclick", "li", function() {
+            let id = this.id;
+            data[id].minus = !data[id].minus;
+            renderList();
+            return false;
+        });
+
+        objects.$listGroup.on("click", "li span", function() {
+            let $li = $(this).parent();
+            let id = $li.attr("id");
+            App.remove(id);
+            return false;
+        });
+
+        objects.$listGroup.bind("contextmenu",function(){
+            return false;
+        });
+
+        objects.$listGroup.on("mousedown", "li", function(e) {
+            $(this).trigger("click");
+            if (e.button === 2) {
+                objects.$tableBox.find(".button-add").trigger("click");
+                return false;
+            }
+        });
+
+        objects.$table.on("click", "th", function(e) {
+            if (e.target !== this) {
+                return;
+            }
+            let $th = $(this);
+            let index = $th.data("index");
+            let item = data[scope].items[index];
+            let cmd = `${item[0]} ${item[1]}`;
+            let newCmd = prompt('edit command', cmd);
+            if (newCmd) {
+                let result = parseCommand(newCmd);
+                if (result.length) {
+                    data[scope].items[index] = result;
+                    App.render();
+                }
+            }
+            return false;
+        });
+
+        objects.$table.on("click", "th span", function() {
+            let $th = $(this).parent();
+            let index = $th.data("index");
+            data[scope].items.splice(index, 1);
+            App.render();
+        });
+
+        $(document).on("keydown", function(e) {
+            if (e.composed && e.key === "Enter") {
+                if (e.ctrlKey) {
+                    objects.$tableBox.find(".button-add").trigger("click");
+                } else if (e.altKey) {
+                    objects.$listBox.find(".button-add").trigger("click");
+                }
+            }
+
+            if (e.composed && e.ctrlKey && (e.code === "ArrowUp" || e.code === "ArrowDown")) {
+                let scopeIndex = list.indexOf(scope);
+                if (e.code === "ArrowUp") {
+                    scopeIndex --;
+                } else {
+                    scopeIndex ++;
+                }
+                if (scopeIndex >= 0 && scopeIndex <= list.length) {
+                    scope = list[scopeIndex];
+                    App.render();
+                }
+            }
+        });
+    };
+    init();
+
+    let parseCommand = function(command) {
+        let match = /(?<a>.+?)\s+(?<b>[-(]?\d.*)/.exec(command);
+        let result = [];
+        if (match) {
+            try {
+                let n = eval(match.groups.b);
+                result.push(match.groups.a);
+                result.push(match.groups.b);
+                result.push(App.fixedNumber(n));
+            } catch (e) {
+                console.log(e);
+            }
+        }
+        return result;
+    };
+
+    let calcAmount = function(item) {
+        if (item.items.length) {
+            let total = 0;
+            item.items.forEach(function(v, i) {
+                total += v[2];
+            });
+            return App.fixedNumber(total);
+        }
+        return 0;
+    };
+
+    let renderList = function() {
+        objects.$listGroup.empty();
+        let total = 0;
+        list.forEach(function(v, i) {
+            if (scope === null) {
+                scope = v;
+            }
+            let item = data[v];
+            if (!item) {
+                App.remove(i);
+                return;
+            }
+            let text = item["name"];
+            let amount = calcAmount(item);
+            let focus = scope === v;
+            if (item.minus) {
+                total -= amount;
+            } else {
+                total += amount;
+            }
+            text += ` [${amount}]`;
+            let $li = $("<li>").addClass("list-group-item").text(text);
+            $li.data("data", item);
+            $li.data("index", i);
+            $li.attr("id", v);
+            $li.data("amount", amount);
+            $li.append($("<span>X</span>").addClass("badge badge-primary badge-pill ml-2"));
+            if (focus) {
+                $li.css("fontWeight", "bold");
+            }
+
+            if (item.minus) {
+                $li.addClass("list-group-item-danger");
+            }
+            objects.$listGroup.append($li);
+        });
+        objects.$listResult.text("Result: " + App.fixedNumber(total));
+        App.cache(cacheKey, App.get());
+    };
+
+    let renderTable = function() {
+        var $tbody = objects.$table.find("tbody");
+        $tbody.empty();
+        if (scope) {
+            let item = data[scope];
+            if (!item) {
+                objects.$tableBox.hide();
+                return;
+            }
+            objects.$tableBox.show();
+            objects.$tableBox.find(".name").text(item.name);
+            let total = 0;
+            item.items.forEach(function(v, i) {
+                total += v[2];
+                $tbody.append(`<tr><th data-index="${i}">${v[0]} [${v[1]}] <span class="badge badge-secondary badge-pill ml-2">X</span></th><td>${v[2]}</td></tr>`);
+            });
+            objects.$table.find("caption").text(`Total: ${App.fixedNumber(total)}`);
+        }
+        App.cache(cacheKey, App.get());
+    };
+
+    let App = {
+        uniqid: function() {
+            return ("0000" + (Math.random()*Math.pow(36,4) << 0).toString(36)).slice(-4);
+        }
+        , fixedNumber: function(number) {
+            return Math.round(number * 100) / 100
+        }
+        , add: function(key, name) {
+            list.push(key);
+            data[key] = {
+                name: name
+                , minus: false
+                , items: []
+            };
+            scope = key;
+
+            App.render();
+        }
+        , remove: function(key) {
+            delete data[key];
+            list.splice(list.indexOf(key), 1);
+            App.render();
+        }
+        , get: function() {
+            return [list, data];
+        }
+        , load: function(array) {
+            list = array[0];
+            data = array[1];
+            App.render();
+        }
+        , render: function() {
+            renderList();
+            renderTable();
+        }
+        , cache: function(k, v) {
+            if (typeof v === "undefined") {
+                let value = localStorage.getItem(k);
+                if (value) {
+                    value = JSON.parse(value);
+                }
+                return value;
+            } else {
+                localStorage.setItem(k, JSON.stringify(v));
+                return true;
+            }
+        }
+        , clear: function() {
+            data = {};
+            list = [];
+            scope = null;
+            App.render();
+        }
+        , export: function() {
+            let date = new Date;
+            let filename = `m_calculator_${date.getFullYear()}_${date.getMonth()}_${date.getDate()}.json`;
+            App.save(filename, JSON.stringify(App.get()));
+        }
+        , save: function(filename, content) {
+            let blob = new Blob([content]);
+            let source = URL.createObjectURL(blob);
+            $a = $("<a>").attr("href", source).attr("download", filename).hide();
+            $("body").append($a);
+            $a.trigger("click").remove();
+        }
+        , init: function() {
+            let cache = App.cache(cacheKey);
+            if (cache) {
+                App.load(cache);
+            }
+        }
+        , objects: objects
+    };
+    return App;
+}();
+
+App.init();
+</script>
+</body>
+</html>
