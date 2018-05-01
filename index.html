@@ -94,9 +94,8 @@
     <input type="file" id="importFile" style="display: none">
 </div>
 
-<!--<script src="js/jquery-3.3.1.min.js"></script>-->
-<script src="js/zepto.min.js"></script>
-<script src="js/touch.js"></script>
+<script src="js/jquery-3.3.1.slim.min.js"></script>
+<script src="js/taphold.js"></script>
 <script>
 let App = function() {
     let objects = {};
@@ -171,34 +170,29 @@ let App = function() {
             alert("file import failed");
         };
 
-        objects.$listGroup.on("click", "li", function() {
-            scope = this.id;
-            App.render();
-            return false;
-        });
-
-        objects.$listGroup.on("longTap dblclick", "li", function() {
-            let id = this.id;
-            data[id].minus = !data[id].minus;
-            renderList();
-            return false;
-        });
-
-        objects.$listGroup.on("click", "li span", function() {
+        objects.$listGroup.on("click", "li span", function(e) {
             let $li = $(this).parent();
             let id = $li.attr("id");
             App.remove(id);
             return false;
         });
 
+        objects.$listGroup.on("click", "li", function(e) {
+            if (e.bubbles) {
+                scope = this.id;
+                App.render();
+            }
+        });
+
         objects.$listGroup.bind("contextmenu",function(){
             return false;
         });
 
-        objects.$listGroup.on("mousedown", "li", function(e) {
-            $(this).trigger("click");
-            if (e.button === 2) {
-                objects.$tableBox.find(".button-add").trigger("click");
+        objects.$listGroup.on("mousedown taphold", "li", function(e) {
+            if (e.button === 2 || e.type === "taphold") {
+                let id = this.id;
+                data[id].minus = !data[id].minus;
+                renderList();
                 return false;
             }
         });
@@ -230,7 +224,7 @@ let App = function() {
         });
 
         $(document).on("keydown", function(e) {
-            if (e.composed && e.key === "Enter") {
+            if (e.key === "Enter") {
                 if (e.ctrlKey) {
                     objects.$tableBox.find(".button-add").trigger("click");
                 } else if (e.altKey) {
@@ -238,14 +232,14 @@ let App = function() {
                 }
             }
 
-            if (e.composed && e.ctrlKey && (e.code === "ArrowUp" || e.code === "ArrowDown")) {
+            if (e.ctrlKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
                 let scopeIndex = list.indexOf(scope);
-                if (e.code === "ArrowUp") {
+                if (e.key === "ArrowUp") {
                     scopeIndex --;
                 } else {
                     scopeIndex ++;
                 }
-                if (scopeIndex >= 0 && scopeIndex <= list.length) {
+                if (scopeIndex >= 0 && scopeIndex < list.length) {
                     scope = list[scopeIndex];
                     App.render();
                 }
@@ -284,6 +278,9 @@ let App = function() {
     let renderList = function() {
         objects.$listGroup.empty();
         let total = 0;
+        let posTotal = 0;
+        let minTotal = 0;
+        let hasMinus = false;
         list.forEach(function(v, i) {
             if (scope === null) {
                 scope = v;
@@ -298,7 +295,10 @@ let App = function() {
             let focus = scope === v;
             if (item.minus) {
                 total -= amount;
+                minTotal += amount;
+                hasMinus = true;
             } else {
+                posTotal += amount;
                 total += amount;
             }
             text += ` [${amount}]`;
@@ -317,12 +317,18 @@ let App = function() {
             }
             objects.$listGroup.append($li);
         });
-        objects.$listResult.text("Result: " + App.fixedNumber(total));
+        let result = App.fixedNumber(total);
+        if (hasMinus) {
+            posTotal = App.fixedNumber(posTotal);
+            minTotal = App.fixedNumber(minTotal);
+            result += ` [${posTotal}, ${minTotal}]`;
+        }
+        objects.$listResult.text("Result: " + result);
         App.cache(cacheKey, App.get());
     };
 
     let renderTable = function() {
-        var $tbody = objects.$table.find("tbody");
+        let $tbody = objects.$table.find("tbody");
         $tbody.empty();
         if (scope) {
             let item = data[scope];
@@ -397,15 +403,16 @@ let App = function() {
         }
         , export: function() {
             let date = new Date;
-            let filename = `m_calculator_${date.getFullYear()}_${date.getMonth()}_${date.getDate()}.json`;
+            let filename = `m_calculator_${date.getFullYear()}_${date.getMonth()+1}_${date.getDate()}.json`;
             App.save(filename, JSON.stringify(App.get()));
         }
         , save: function(filename, content) {
             let blob = new Blob([content]);
             let source = URL.createObjectURL(blob);
-            $a = $("<a>").attr("href", source).attr("download", filename).hide();
+            let $a = $("<a>").attr("href", source).attr("download", filename).hide();
             $("body").append($a);
-            $a.trigger("click").remove();
+            $a[0].click();
+            $a.remove();
         }
         , init: function() {
             let cache = App.cache(cacheKey);
